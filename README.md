@@ -18,9 +18,9 @@ Due to the weak compute power and specifications of my computer, I was unable to
 | Name | # Layers | Parameter Count | Peak Accuracy |
 |---|---|---|---|
 | Nano | 34 | 214,314 | 99.7975% |
-| Micro | | | n/a |
-| Mini | | | n/a |
-| Small | | | n/a |
+| Micro | 50 | 613,404| n/a |
+| Mini | 141 | 2,053,372| n/a |
+| Small | 188 | 5,358,396| n/a |
 | Standard | | | n/a |
 | Large | | | n/a |
 | Mega | | | n/a |
