@@ -1,5 +1,5 @@
 # MergeNet
-MergeNet is a type of InceptionResnet that I have created with 7 variants: Nano, Micro, Mini, Small, Standard, Large, and Mega. \
+MergeNet is a type of InceptionResnet that I have created with 7 variants: Nano, Micro, Mini, Small, Standard, Large, and Mega. 
 
 # Architecture
 MergeNet uses Inception layers along with a skip connection per block, similar to Inception, Inception-ResNet, and ResNeXt, exept: 
