@@ -13,7 +13,7 @@ MergeNet uses Inception layers along with a skip connection per block, similar t
 
 The smallest version, nano, crushes ResNeXt and Ineception-ResNet on EMNIST Digits while having between 117x and 260x less parameters, depending on the version/size. Even though this test on the accuracy in unfair to the Inception-ResNet type models becuase of the large size and small dataset, and the diffrences in which dataset it is optimized for, however based of off the modern additions such as PReLu and AdamW, and the still high relitive accuracy difference I can conclude that it would be able to outpreform these models, specificly the Small and higher models.
 
-Due to the weak compute power and specifications of my computer, I was unable to download the ImageNet dataset, and was unable to let it run because I cannot use Cuda or ROCm, So I was only able to run Nano Completely, and I had to use EMNIST Digits, rather than ImageNet 1K. All models have EMNIST Digits in it as a Placeholder for orginazation, however the model is for Imagenet 1K.
+Due to the weak compute power and specifications of my computer, I was unable to download the ImageNet dataset, and was unable to let it run because I cannot use Cuda or ROCm, So I was only able to run Nano Completely, and I had to use EMNIST Digits, rather than ImageNet 1K. All models other than Nano have EMNIST Digits in it as a Placeholder for orginazation, however the model is for Imagenet 1K.
 
 | Name | # Layers | Parameter Count | Peak Accuracy |
 |---|---|---|---|
