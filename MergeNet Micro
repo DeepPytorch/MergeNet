@@ -1,8 +1,7 @@
+import os
 import torch
-import torchvision
 import torchvision.transforms as transforms
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import torchvision.datasets as datasets
 import matplotlib.pyplot as plt
@@ -12,49 +11,9 @@ test_accuracies = []
 
 torch.manual_seed(42)  # For reproducibility
 
-# Data Augmentation ensures excellent generalization for high-tier accuracy
-train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(224),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    )
-])
-
-test_transform = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    )
-])
-
-'''
-PLACEHOLDER: VERY IMPORTANT TO CHANGE BEFORE RUN
-'''
-# Datasets (EMNIST Digits: 10 classes, 0-indexed)
-training_dataset = datasets.EMNIST(
-    root='./data', split='digits', train=True, 
-    download=True, transform=train_transform
-)
-testing_dataset = datasets.EMNIST(
-    root='./data', split='digits', train=False, 
-    download=True, transform=test_transform
-)
-
-# Data Loaders
-train_loader = torch.utils.data.DataLoader(
-    training_dataset, batch_size=64, shuffle=True, 
-    num_workers=4, pin_memory=True, persistent_workers=True
-)
-test_loader = torch.utils.data.DataLoader(
-    testing_dataset, batch_size=64, shuffle=False, 
-    num_workers=4, pin_memory=True, persistent_workers=True
-)
+# ==========================================
+# 1. MODEL ARCHITECTURE DEFINITION
+# ==========================================
 
 class PReLu(nn.Module):
     def __init__(self, num_parameters=1):
@@ -73,8 +32,7 @@ class InceptionResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         
-        # Core change: true bottleneck reduction factor
-        reduced = out_channels // 4
+        reduced = max(4, out_channels // 4)
         
         # Branch 1: 1x1 Convolution
         self.branch1 = nn.Sequential(
@@ -93,7 +51,7 @@ class InceptionResidualBlock(nn.Module):
             PReLu(num_parameters=reduced)
         )
         
-        # Branch 3: 1x1 Convolution -> Two 3x3 Convolutions (Replaces heavy 5x5)
+        # Branch 3: 1x1 Convolution -> Two 3x3 Convolutions
         self.branch3 = nn.Sequential(
             nn.Conv2d(in_channels, reduced, kernel_size=1, bias=False),
             nn.BatchNorm2d(reduced),
@@ -120,7 +78,6 @@ class InceptionResidualBlock(nn.Module):
             nn.BatchNorm2d(out_channels)
         )
         
-        # Residual Shortcut match
         if in_channels != out_channels:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
@@ -145,17 +102,11 @@ class InceptionResidualBlock(nn.Module):
         return self.final_activation(out + res)
     
 class ReductionBlock(nn.Module):
-    """
-    Optimized Inception-Residual Block utilizing true bottleneck dimensionality reduction
-    and factorization of 5x5 kernels into dual 3x3 kernels.
-    """
     def __init__(self, in_channels, out_channels):
         super().__init__()
         
-        # Core change: true bottleneck reduction factor
-        reduced = out_channels // 4
+        reduced = max(4, out_channels // 4)
         
-        # Branch 1: 1x1 Convolution -> 3x3 Convolution
         self.branch1 = nn.Sequential(
             nn.Conv2d(in_channels, reduced, kernel_size=1, bias=False),
             nn.BatchNorm2d(reduced),
@@ -165,7 +116,6 @@ class ReductionBlock(nn.Module):
             PReLu(num_parameters=reduced)
         )
         
-        # Branch 2: 1x1 Convolution -> Two 3x3 Convolutions (Replaces heavy 5x5)
         self.branch2 = nn.Sequential(
             nn.Conv2d(in_channels, reduced, kernel_size=1, bias=False),
             nn.BatchNorm2d(reduced),
@@ -178,7 +128,6 @@ class ReductionBlock(nn.Module):
             PReLu(num_parameters=reduced)
         )
         
-        # Branch 3: MaxPool -> 1x1 Convolution
         self.branch3 = nn.Sequential(
             nn.MaxPool2d(kernel_size=3, stride=1, padding=1),
             nn.Conv2d(in_channels, reduced, kernel_size=1, bias=False),
@@ -186,13 +135,11 @@ class ReductionBlock(nn.Module):
             PReLu(num_parameters=reduced)
         )
         
-        # Project concatenated branches back to out_channels size
         self.project = nn.Sequential(
             nn.Conv2d(reduced * 3, out_channels, kernel_size=1, bias=False),
             nn.BatchNorm2d(out_channels)
         )
         
-        # Residual Shortcut match
         if in_channels != out_channels:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
@@ -219,7 +166,7 @@ class StemBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
 
-        reduced = out_channels // 4
+        reduced = max(4, out_channels // 4)
 
         self.body = nn.Sequential(
             nn.Conv2d(in_channels, reduced, kernel_size=1, bias=False),
@@ -235,75 +182,62 @@ class StemBlock(nn.Module):
             PReLu(num_parameters=out_channels),
         )
 
+    def forward(self, x):
+        return self.body(x)
 
+class Stack(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+
+        mid_channels = (in_channels + out_channels) // 2
+
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.body = nn.Sequential(
+            StemBlock(in_channels=in_channels, out_channels=mid_channels),
+            InceptionResidualBlock(in_channels=mid_channels, out_channels=mid_channels),
+            InceptionResidualBlock(in_channels=mid_channels, out_channels=mid_channels),
+            self.pool,
+            InceptionResidualBlock(in_channels=mid_channels, out_channels=out_channels),
+            ReductionBlock(in_channels=out_channels, out_channels=out_channels),
+        )
+    
+    def forward(self, x):
+        return self.body(x)
 
 class MergeNetMicro(nn.Module):
     def __init__(self):
         super().__init__()
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        
-        self.layer1 = nn.Sequential(
-            StemBlock(in_channels = 3, out_channels = 16),
-            self.pool
-        )
-
-        self.layer2 = nn.Sequential(
-            InceptionResidualBlock(in_channels=16, out_channels=32),
-            self.pool
-        )
-        self.layer3 = nn.Sequential(
-            InceptionResidualBlock(in_channels=32, out_channels=64),
-            self.pool
-        )
-        self.layer4 = nn.Sequential(
-            InceptionResidualBlock(in_channels=64, out_channels=96),
-            self.pool
-        )
-        self.layer5 = nn.Sequential(
-            InceptionResidualBlock(in_channels=96, out_channels=128)
-        )
-
-        self.layer6 = nn.Sequential(
-            ReductionBlock(in_channels = 128, out_channels = 32),
-            self.pool
-        )
-        self.layer7 = nn.Sequential(
-            StemBlock(in_channels = 32, out_channels = 16),
-            self.pool
-        )
-        
+        self.Stack1 = Stack(in_channels=3, out_channels=128)
         self.global_avg = nn.AdaptiveAvgPool2d((1, 1))
         
         self.fc_layers = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(160, 512), 
+            nn.Linear(128, 512), 
             PReLu(num_parameters=512),
             nn.BatchNorm1d(512),
-            nn.Dropout(0.5),
-            nn.Linear(512, 256),
-            PReLu(num_parameters=256),
-            nn.BatchNorm1d(256),
+            nn.Dropout(0.4),
+            nn.Linear(512, 1024),
+            PReLu(num_parameters=1024),
+            nn.BatchNorm1d(1024),
             nn.Dropout(0.3),
-            nn.Linear(256, 1000) 
+            nn.Linear(1024, 1000) 
         )
 
     def forward(self, x):
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.layer5(x)
-        x = self.layer6(x)
+        x = self.Stack1(x)
         x = self.global_avg(x)
         x = self.fc_layers(x)
         return x
 
+# ==========================================
+# 2. UTILITY FUNCTIONS FOR TRAINING/TESTING
+# ==========================================
 
 def train(model, device, train_loader, optimizer, criterion, scheduler, epoch):
     model.train()
     total_loss = 0.0
     n = len(train_loader)
-    print_every = max(1, n // 10) # Log every 10% progress
+    print_every = max(1, n // 20)
     
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device, non_blocking=True), target.to(device, non_blocking=True)
@@ -336,9 +270,12 @@ def test(model, device, test_loader, criterion):
     acc = 100.0 * correct / len(test_loader.dataset)
     
     test_accuracies.append(acc) 
-    print(f' → Test loss: {test_loss:.4f} accuracy: {correct}/{len(test_loader.dataset)} ({acc:.4f}%)\n')
+    print(f' → Validation loss: {test_loss:.4f} accuracy: {correct}/{len(test_loader.dataset)} ({acc:.4f}%)\n')
     return acc
 
+# ==========================================
+# 3. RUNTIME EXECUTION BLOCK
+# ==========================================
 
 if __name__ == '__main__':
     torch.set_num_threads(torch.get_num_threads())
@@ -346,15 +283,57 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Using device: {device}\n")
     
+    # Instantiate the network first so parameter math executes cleanly
     model = MergeNetMicro().to(device)
-    criterion = nn.CrossEntropyLoss()
     
-    epochs = 20
-    optimizer = optim.AdamW(model.parameters(), lr=0.002, weight_decay=2e-4)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    
+    # Calculate and Print exact Parameter count
     total_params = sum(p.numel() for p in model.parameters())
-    print(f'Total parameters: {total_params:,}\n') 
+    print("=" * 45)
+    print(f'TOTAL MODEL PARAMETERS: {total_params:,}') 
+    print("=" * 45 + "\n")
+
+    # ImageNet standard normalization transforms
+    train_transform = transforms.Compose([
+        transforms.RandomResizedCrop(224),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    test_transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    # ImageNet target local root path
+    IMAGENET_PATH = './data/imagenet' 
+
+    print("Attempting to verify and parse ImageNet directory maps...")
+    if not os.path.exists(IMAGENET_PATH):
+        print(f"\nCRITICAL ERROR: ImageNet path '{IMAGENET_PATH}' does not exist.")
+    
+    # CRITICAL TRIGGER POINT: If path is missing, PyTorch will immediately throw a RuntimeError here.
+    training_dataset = datasets.ImageNet(
+        root=IMAGENET_PATH, split='train', transform=train_transform
+    )
+    testing_dataset = datasets.ImageNet(
+        root=IMAGENET_PATH, split='val', transform=test_transform
+    )
+
+    # Data Loaders
+    train_loader = torch.utils.data.DataLoader(
+        training_dataset, batch_size=128, shuffle=True, num_workers=8, pin_memory=True, persistent_workers=True
+    )
+    test_loader = torch.utils.data.DataLoader(
+        testing_dataset, batch_size=128, shuffle=False, num_workers=8, pin_memory=True, persistent_workers=True
+    )
+
+    criterion = nn.CrossEntropyLoss()
+    epochs = 90 
+    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     
     best_acc = 0.0
     for epoch in range(1, epochs + 1):
@@ -364,12 +343,12 @@ if __name__ == '__main__':
         
         if current_acc >= best_acc:
             best_acc = current_acc
-            torch.save(model.state_dict(), 'MergeNetMicro.pth')
+            torch.save(model.state_dict(), 'MergeNetMicro_ImageNet.pth')
             
     plt.plot(range(1, epochs + 1), test_accuracies, marker='o', color='b')
     plt.xlabel('Epoch')
-    plt.ylabel('Accuracy (%)')
-    plt.title('MergeNetMicro Test Accuracy over Epochs')
+    plt.ylabel('Validation Accuracy (%)')
+    plt.title('MergeNetMicro Validation Accuracy over Epochs (ImageNet-1K)')
     plt.grid(True)
     plt.tight_layout()
     plt.show()

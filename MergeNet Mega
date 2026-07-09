@@ -141,12 +141,26 @@ class MergeNetV2(nn.Module):
         
         self.stack4 = nn.Sequential(
             EfficientInceptionBlock(512, 1024, stride=2),
-            EfficientInceptionBlock(1024, 1024, stride=1)
+            EfficientInceptionBlock(1024, 1024, stride=1),
+            EfficientInceptionBlock(1024, 1024, stride=1),
+            EfficientInceptionBlock(1024, 1024, stride=1),
+        )
+
+        self.stack4 = nn.Sequential(
+            EfficientInceptionBlock(1024, 2056, stride=2),
+            EfficientInceptionBlock(2056, 2056, stride=1),
+            EfficientInceptionBlock(2056, 2056, stride=1),
+            EfficientInceptionBlock(2056, 2056, stride=1),
+        )
+
+        self.stack5 = nn.Sequential(
+            EfficientInceptionBlock(2056, 3084, stride=2),
+            EfficientInceptionBlock(3084, 3084, stride=1)
         )
         
         self.global_avg = nn.AdaptiveAvgPool2d((1, 1))
         self.dropout = nn.Dropout(0.2)
-        self.classifier = nn.Linear(1024, num_classes)
+        self.classifier = nn.Linear(2056, num_classes)
 
     def forward(self, x):
         x = self.stem(x)

@@ -114,7 +114,7 @@ class Stem(nn.Module):
     def forward(self, x):
         return self.body(x)
 
-class MergeNetV2(nn.Module):
+class MergeNetV2Standard(nn.Module):
     def __init__(self, num_classes=1000):
         super().__init__()
         self.stem = Stem(out_channels=64)
@@ -141,7 +141,9 @@ class MergeNetV2(nn.Module):
         
         self.stack4 = nn.Sequential(
             EfficientInceptionBlock(512, 1024, stride=2),
-            EfficientInceptionBlock(1024, 1024, stride=1)
+            EfficientInceptionBlock(1024, 1024, stride=1),
+            EfficientInceptionBlock(1024, 1024, stride=1),
+            EfficientInceptionBlock(1024, 1024, stride=1),
         )
         
         self.global_avg = nn.AdaptiveAvgPool2d((1, 1))
@@ -154,7 +156,7 @@ class MergeNetV2(nn.Module):
         x = self.stack2(x)
         x = self.stack3(x)
         x = self.stack4(x)
-        
+
         x = self.global_avg(x)
         x = torch.flatten(x, 1)
         x = self.dropout(x)
@@ -227,7 +229,7 @@ if __name__ == '__main__':
     print(f"Using device: {device}\n")
     
     # Instantiate the network
-    model = MergeNetV2(num_classes=1000).to(device)
+    model = MergeNetV2Standard(num_classes=1000).to(device)
     
     # Calculate and Print exact Parameter count
     total_params = sum(p.numel() for p in model.parameters())
@@ -271,7 +273,7 @@ if __name__ == '__main__':
             testing_dataset, batch_size=128, shuffle=False, num_workers=8, pin_memory=True, persistent_workers=True
         )
 
-        criterion = nn.CrossEntropyLoss()
+        criterion = nn.CrossEntropyLoss(label_smoothing = 0.1)  # Label smoothing for better generalization
         epochs = 90 
         
         # AdamW is great, keeping your optimizers as requested
